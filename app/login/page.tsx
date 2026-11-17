@@ -1,4 +1,4 @@
-import { signIn } from "@/lib/auth";
+import { auth, signIn } from "@/lib/auth";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -65,6 +65,10 @@ export default async function LoginPage({
   const rawCallback = params.callbackUrl ?? templateCallbackUrl ?? "/dashboard";
   // Only same-site paths, never another domain.
   const callbackUrl = rawCallback.startsWith("/") && !rawCallback.startsWith("//") ? rawCallback : "/dashboard";
+
+  // Already signed in with a valid session: go straight in.
+  const session = await auth().catch(() => null);
+  if (session?.user?.id) redirect(callbackUrl);
 
   async function signInWithPassword(formData: FormData) {
     "use server";
