@@ -1,0 +1,18 @@
+# insta-autodm: Render Blueprint for the OpenReply DM worker (free plan).
+# In Render: New -> Blueprint -> pick this repo. Then paste your settings block
+# under the service's Environment tab ("Add from .env").
+services:
+  - type: web
+    name: openreply-worker
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci --include=dev && npm run db:generate
+    startCommand: npx tsx worker/render-worker.ts
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DB_POOL_MAX
+        value: "5"
