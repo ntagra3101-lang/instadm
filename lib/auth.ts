@@ -1,44 +1,70 @@
 import NextAuth, { type NextAuthConfig } from "next-auth";
-import Nodemailer from "next-auth/providers/nodemailer";
-import Resend from "next-auth/providers/resend";
+import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/db/client";
 import { ensureWorkspaceForUser, getPrimaryWorkspace } from "@/lib/workspace";
 import { isEmailAllowedToSignIn } from "@/lib/env";
+import {
+  clearAttempts,
+  clientIp,
+  getLoginUsername,
+  getOwnerEmail,
+  takeAttempt,
+  verifyPassword,
+} from "@/lib/password-auth";
 
 type AdapterPrismaClient = Parameters<typeof PrismaAdapter>[0];
 
-const emailFrom = process.env.EMAIL_FROM ?? "Insta DM <login@example.com>";
-// Setting EMAIL_SERVER switches magic links to your own SMTP server, for
-// self-hosters who do not want a third-party mail service. Resend stays the
-// default, so an existing deployment is unaffected.
-const smtpServer = process.env.EMAIL_SERVER;
-
-/**
- * Provider id the login form has to sign in with. It differs per transport,
- * so it is derived here rather than hardcoded at the call site.
- */
-export const EMAIL_PROVIDER_ID = smtpServer ? "nodemailer" : "resend";
-
+// Username/password login for the single owner (insta-autodm). Magic-link
+// email sign-in is removed; "forgot password" emails the owner a reset link.
 export const authConfig = {
   adapter: PrismaAdapter(prisma as unknown as AdapterPrismaClient),
   providers: [
-    smtpServer
-      ? Nodemailer({ server: smtpServer, from: emailFrom })
-      : Resend({
-          apiKey: process.env.RESEND_API_KEY ?? "missing-resend-api-key",
-          from: emailFrom,
-        }),
+    Credentials({
+      credentials: {
+        username: { label: "Username" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials, request) {
+        const username = String(credentials?.username ?? "").trim().toLowerCase();
+        const password = String(credentials?.password ?? "");
+        const expectedUsername = getLoginUsername();
+        const ownerEmail = getOwnerEmail();
+        if (!expectedUsername || !ownerEmail || !password) return null;
+
+        const ip = clientIp(request?.headers);
+        const ipOk = await takeAttempt(`login:ip:${ip}`, 10, 15 * 60);
+        const allOk = await takeAttempt("login:all", 100, 60 * 60);
+        if (!ipOk || !allOk) return null;
+
+        let user = await prisma.user.findUnique({ where: { email: ownerEmail } });
+        const storedHash = user?.passwordHash ?? process.env.LOGIN_PASSWORD_HASH;
+        // Always run the hash check so a wrong username takes as long as a wrong password.
+        const passwordOk = await verifyPassword(password, storedHash);
+        if (!passwordOk || username !== expectedUsername) return null;
+
+        await clearAttempts(`login:ip:${ip}`);
+        if (!user) {
+          user = await prisma.user.create({
+            data: { email: ownerEmail, emailVerified: new Date() },
+          });
+          await ensureWorkspaceForUser(user.id, user.email);
+        }
+        return { id: user.id, email: user.email, name: user.name };
+      },
+    }),
   ],
   callbacks: {
-    // Runs before the magic link is sent, so a blocked address never receives
-    // one, and again when the link is verified.
     async signIn({ user }) {
       return isEmailAllowedToSignIn(user?.email);
     },
-    async session({ session, user }) {
-      if (session.user) {
-        session.user.id = user.id;
+    async jwt({ token, user }) {
+      if (user?.id) token.sub = user.id;
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user && token.sub) {
+        session.user.id = token.sub;
       }
       return session;
     },
@@ -52,10 +78,10 @@ export const authConfig = {
   },
   pages: {
     signIn: "/login",
-    verifyRequest: "/verify-request",
   },
   session: {
-    strategy: "database",
+    // Credentials sign-in requires JWT sessions in Auth.js.
+    strategy: "jwt",
   },
   trustHost: true,
   secret: process.env.NEXTAUTH_SECRET,
