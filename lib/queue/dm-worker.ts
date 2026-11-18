@@ -1547,7 +1547,7 @@ async function dispatchJob(job: Job<DmQueueJob>): Promise<void> {
   return processComment(job as Job<ProcessCommentJob>);
 }
 
-async function processJob(job: Job<DmQueueJob>): Promise<void> {
+export async function processJob(job: Job<DmQueueJob>): Promise<void> {
   try {
     await dispatchJob(job);
   } catch (error) {

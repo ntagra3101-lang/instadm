@@ -23,6 +23,8 @@ export function getRedisConnection(): Redis {
 export type CommentSource = "WEBHOOK" | "POLLING";
 
 export interface ProcessCommentJob {
+  // Retries made by the inline drain (lib/queue/inline-drain.ts).
+  drainAttempts?: number;
   accountConnectionId?: string;
   instagramAccountId: string;
   commentId: string;
@@ -41,6 +43,8 @@ export interface ProcessCommentJob {
 
 // Delivered when a user taps an opening DM's button — carries the reveal target.
 export interface ProcessPostbackJob {
+  // Retries made by the inline drain (lib/queue/inline-drain.ts).
+  drainAttempts?: number;
   accountConnectionId?: string;
   instagramAccountId: string;
   userId: string;
@@ -60,6 +64,8 @@ export interface ProcessPostbackJob {
 // Enqueued with a delay (followUpDelayMinutes) so it can fire later, not just
 // immediately.
 export interface ProcessFollowUpJob {
+  // Retries made by the inline drain (lib/queue/inline-drain.ts).
+  drainAttempts?: number;
   accountConnectionId?: string;
   instagramAccountId: string;
   userId: string;
@@ -70,6 +76,8 @@ export interface ProcessFollowUpJob {
 // An inbound DM from a user. Campaigns with `dmTriggerEnabled` whose keywords
 // match the text reply to the sender.
 export interface ProcessMessageJob {
+  // Retries made by the inline drain (lib/queue/inline-drain.ts).
+  drainAttempts?: number;
   accountConnectionId?: string;
   instagramAccountId: string;
   messageId: string;

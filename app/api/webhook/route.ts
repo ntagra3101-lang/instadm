@@ -5,6 +5,10 @@ import {
   verifyWebhookSignature,
 } from "@/lib/meta/webhook";
 import { processInstagramWebhook } from "@/lib/queue/process-webhook";
+import { drainQueue } from "@/lib/queue/inline-drain";
+
+// Vercel Hobby allows 300 s per request; the drain itself stops at 240 s.
+export const maxDuration = 300;
 
 
 export async function GET(request: NextRequest) {
@@ -63,23 +67,10 @@ export async function POST(request: NextRequest) {
 
   try {
     await processInstagramWebhook({ payload: payload as Parameters<typeof parseCommentEvents>[0], provider: 'META' });
-    wakeWorker();
+    // Send the DMs now, after the response, so Meta gets its 200 straight away.
+    after(() => drainQueue().catch(() => undefined));
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ success: false, error: 'Webhook processing failed' }, { status: 500 });
   }
-}
-
-
-// insta-autodm: wake the Render worker (free plan sleeps after 15 idle minutes).
-// Runs after the response is sent, so Meta never waits for it.
-function wakeWorker() {
-  const url = process.env.WORKER_WAKE_URL;
-  if (!url) return;
-  after(() =>
-    fetch(url, { signal: AbortSignal.timeout(8000) }).then(
-      () => undefined,
-      () => undefined
-    )
-  );
 }
